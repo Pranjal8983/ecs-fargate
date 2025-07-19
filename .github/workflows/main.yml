@@ -1,0 +1,81 @@
+name: Terraform Quality Checks
+
+on:
+  workflow_dispatch:
+  # push:
+  #   paths:
+  #     - '**.tf'
+  #     - '.tflint.hcl'
+  #     - '**/README.md'
+  # pull_request:
+  #   paths:
+  #     - '**.tf'
+  #     - '.tflint.hcl'
+  #     - '**/README.md'
+
+jobs:
+  terraform-quality:
+    name: Run Terraform Quality Tools
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go (for custom TFLint plugin)
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Build custom TFLint plugin
+        run: |
+          cd tflint-rules
+          go build -o ../tflint-custom-plugin
+          cd ..
+
+      - name: Install TFLint
+        run: |
+          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+
+      - name: Run TFLint and generate report
+        run: |
+          tflint --plugin-dir . --format json > tflint-report.json
+
+      - name: Upload TFLint report
+        uses: actions/upload-artifact@v3
+        with:
+          name: tflint-report
+          path: tflint-report.json
+
+      - name: Install terraform-docs
+        run: |
+          curl -sSLo terraform-docs.tar.gz https://github.com/terraform-docs/terraform-docs/releases/latest/download/terraform-docs-v0.16.0-linux-amd64.tar.gz
+          tar -xzf terraform-docs.tar.gz
+          chmod +x terraform-docs
+          sudo mv terraform-docs /usr/local/bin/
+
+      - name: Generate Terraform docs
+        run: |
+          terraform-docs markdown table --output-file README.md --output-mode inject .
+
+      - name: Commit updated README.md
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add README.md
+          git commit -m "Update Terraform docs [skip ci]" || echo "No changes to commit"
+          git push
+
+      - name: Install tfsec
+        run: |
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+
+      - name: Run tfsec and generate report
+        run: |
+          tfsec . --format json > tfsec-report.json
+
+      - name: Upload tfsec report
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfsec-report
+          path: tfsec-report.json
